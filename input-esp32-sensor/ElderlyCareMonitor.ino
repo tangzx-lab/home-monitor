@@ -3,11 +3,13 @@
    主控：ESP32-DevKitC（ESP32-WROOM-32）
    传感器：DHT11温湿度 / 光敏电阻 / HC-SR501 PIR / 蜂鸣器
    指示灯：红(温度告警) / 绿(过暗提醒) / 白(正常照明)
-   网页：AP热点 + AJAX无刷新仪表盘 + PC串口回控 + 蓝牙JSON上报
-   版本：V1.6
+   网页：AP热点 + 家中WiFi双模 + AJAX无刷新仪表盘 + PC串口回控 + 蓝牙JSON上报
+   版本：V1.7
    更新：V1.5 新增蓝牙JSON上报（手机蓝牙串口App连ESP32_Care）、
          按键双功能（响时静音/不响时开关灯）、手动模式无人超时自动回自动；
-         V1.6 蓝牙支持接收指令（与USB同一套命令，含HELP/STATUS回显）
+         V1.6 蓝牙支持接收指令（与USB同一套命令，含HELP/STATUS回显）；
+         V1.7 新增WiFi双模（AP+STA）与AJAX无刷新网页、修复PIR自动覆盖手动消音、
+               BLE通道补回STATUS/HELP回传
    ============================================================ */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -41,9 +43,14 @@ BLEServer *bleServer = nullptr;
 BLECharacteristic *bleTx = nullptr;
 bool bleConnected = false;
 
-// ========== AP热点 ==========
+// ========== 无线：本机热点 + 家中WiFi（双模并存） ==========
 const char* ssid     = "ESP32_Care";
 const char* password = "12345678";
+// ↓↓↓ 要连家里WiFi，只改下面两行（只支持2.4G，WPA2密码，不支持校园/网页认证） ↓↓↓
+const char* wifiSsid = "你的WiFi名称";
+const char* wifiPass = "你的WiFi密码";
+bool staPrinted = false;              // 是否已打印过局域网地址
+unsigned long lastStaChk = 0;
 WebServer server(80);
 
 // ========== 阈值 ==========
@@ -102,6 +109,14 @@ String apiJson() {
   return s;
 }
 
+// BLE 统一发送：仅在 BLE 已连接且 TX 特征就绪时用 notify 回传
+void bleSend(const String &s) {
+  if (bleConnected && bleTx) {
+    bleTx->setValue(s.c_str());
+    bleTx->notify();
+  }
+}
+
 // ========== 指令统一处理（USB串口 / 经典蓝牙 / BLE 共用一套命令） ==========
 void handleCmd(String c) {
   c.trim();
@@ -111,10 +126,15 @@ void handleCmd(String c) {
   else if (c == "BEEP")    { beepUntil = millis() + 800; }
   else if (c == "MUTE")    { muted = true;  buzTone(false); }
   else if (c == "UNMUTE")  { muted = false; }
-  else if (c == "STATUS")  { String j = apiJson(); Serial.println(j); SerialBT.println(j); }
+  else if (c == "STATUS")  {
+    String j = apiJson();
+    Serial.println(j); SerialBT.println(j);
+    bleSend(j);
+  }
   else if (c == "HELP")    {
     String h = "命令: LEDON LEDOFF AUTO BEEP MUTE UNMUTE STATUS";
     Serial.println(h); SerialBT.println(h);
+    bleSend(h);
   }
 }
 
@@ -193,15 +213,14 @@ String dashboard() {
   p += "<div class='it'><div class='l'>消音状态</div><div class='v' id='mu'>--</div></div>";
   p += "</div>";
   p += "<div class='ctrl'><h3>远程控制面板</h3>";
-  p += "<a class='btn' style='background:#1565C0' href='/ledon'>灯开</a>";
-  p += "<a class='btn' style='background:#C62828' href='/ledoff'>灯关</a>";
-  p += "<a class='btn' style='background:#2E7D32' href='/auto'>恢复自动</a>";
-  p += "<a class='btn' style='background:#E65100' href='/beep'>试鸣</a>";
-  p += "<a class='btn' id='mb' style='background:#455A64' href='/mute'>消音</a>";
+  p += "<a class='btn' style='background:#1565C0' href='/ledon' data-cmd='/ledon'>灯开</a>";
+  p += "<a class='btn' style='background:#C62828' href='/ledoff' data-cmd='/ledoff'>灯关</a>";
+  p += "<a class='btn' style='background:#2E7D32' href='/auto' data-cmd='/auto'>恢复自动</a>";
+  p += "<a class='btn' style='background:#E65100' href='/beep' data-cmd='/beep'>试鸣</a>";
+  p += "<a class='btn' id='mb' style='background:#455A64' href='/mute' data-cmd='/mute'>消音</a>";
   p += "</div></div>";
   p += "<script>";
-  p += "async function upd(){";
-  p += "try{const r=await fetch('/api');const d=await r.json();";
+  p += "function render(d){";
   p += "document.getElementById('t').textContent=d.temp;";
   p += "document.getElementById('h').textContent=d.hum;";
   p += "document.getElementById('l').textContent=d.light;";
@@ -215,12 +234,43 @@ String dashboard() {
   p += "else if(d.level===1){b.textContent='提醒';b.style.background='#F9A825';}";
   p += "else{b.textContent='正常';b.style.background='#2E7D32';}";
   p += "var mb=document.getElementById('mb');";
-  p += "if(d.muted){mb.textContent='取消消音';mb.href='/unmute';mb.style.background='#00838F';}";
-  p += "else{mb.textContent='消音';mb.href='/mute';mb.style.background='#455A64';}";
-  p += "}catch(e){document.getElementById('badge').textContent='等待数据';}}";
-  p += "upd();setInterval(upd,2000);";
+  p += "if(d.muted){mb.textContent='取消消音';mb.dataset.cmd='/unmute';mb.href='/unmute';mb.style.background='#00838F';}";
+  p += "else{mb.textContent='消音';mb.dataset.cmd='/mute';mb.href='/mute';mb.style.background='#455A64';}";
+  p += "}";
+  p += "async function getJSON(u,tries){for(let k=0;k<tries;k++){try{const r=await fetch(u);if(r.ok)return await r.json();}catch(e){}await new Promise(res=>setTimeout(res,300));}throw new Error('fail');}";
+  p += "async function upd(){try{render(await getJSON('/api',3));}catch(e){document.getElementById('badge').textContent='等待数据';}}";
+  p += "async function ctl(u){try{render(await getJSON(u,3));}catch(e){}}";
+  p += "document.querySelectorAll('.btn[data-cmd]').forEach(function(el){el.addEventListener('click',function(ev){ev.preventDefault();ctl(el.dataset.cmd);});});";
+  p += "upd();setInterval(upd,3000);";
   p += "</script></body></html>";
   return p;
+}
+
+// 分段发送页面：一次性 write 4KB+ 会填满 TCP 发送窗口，双模下整包发不出去
+void sendDash(WebServer &s) {
+  String d = dashboard();
+  auto &c = s.client();
+  c.setNoDelay(true);                 // 关闭 Nagle，小包立即发送，减少往返延迟
+  c.setTimeout(2000);                 // 有界等待，避免长时间占用 loop
+  String h = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + String(d.length()) + "\r\nConnection: close\r\n\r\n";
+  c.print(h);
+  size_t sent = 0;
+  const size_t CH = 1024;             // 大块发送，减少 write 往返次数
+  while (sent < d.length()) {
+    size_t n = (d.length() - sent > CH) ? CH : (d.length() - sent);
+    size_t w = c.write((const uint8_t *)d.c_str() + sent, n);
+    if (w == 0) {
+      bool recovered = false;
+      for (int r = 0; r < 15 && c.connected(); r++) {
+        delay(20);
+        w = c.write((const uint8_t *)d.c_str() + sent, n);
+        if (w > 0) { recovered = true; break; }
+      }
+      if (!recovered) { Serial.println("WRITE_STALL at " + String(sent)); break; }
+    }
+    sent += w;
+  }
+  Serial.println("DASH sent=" + String(sent) + "/" + String(d.length()));
 }
 
 void setup() {
@@ -238,30 +288,49 @@ void setup() {
   pinMode(BOARD_LED, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
+  WiFi.mode(WIFI_AP_STA);           // 关键：热点与家中WiFi同时在线，两路都能访问
   WiFi.softAP(ssid, password);
   Serial.println("AP热点：" + String(ssid) + "  手机访问 http://192.168.4.1");
+  WiFi.begin(wifiSsid, wifiPass);   // 连家中WiFi：连不上也不影响热点，程序照常跑
+  Serial.println("正在连接家中WiFi：" + String(wifiSsid));
 
   // 主页与数据API
-  server.on("/",    [](){ server.send(200, "text/html", dashboard()); });
+  server.on("/",    [](){ sendDash(server); });
   server.on("/api", [](){ server.send(200, "application/json", apiJson()); });
 
   // 控制路由
-  server.on("/ledon",  [](){ autoMode = false; lightOn = true;  digitalWrite(WHITE_LED, HIGH); server.send(200, "text/html", dashboard()); });
-  server.on("/ledoff", [](){ autoMode = false; lightOn = false; digitalWrite(WHITE_LED, LOW);  server.send(200, "text/html", dashboard()); });
-  server.on("/auto",   [](){ autoMode = true;  server.send(200, "text/html", dashboard()); });
-  server.on("/beep",   [](){ beepUntil = millis() + 800; server.send(200, "text/html", dashboard()); });
-  server.on("/mute",   [](){ muted = true;  buzTone(false); server.send(200, "text/html", dashboard()); });
-  server.on("/unmute", [](){ muted = false; server.send(200, "text/html", dashboard()); });
+  server.on("/ledon",  [](){ autoMode = false; lightOn = true;  digitalWrite(WHITE_LED, HIGH); server.send(200, "application/json", apiJson()); });
+  server.on("/ledoff", [](){ autoMode = false; lightOn = false; digitalWrite(WHITE_LED, LOW);  server.send(200, "application/json", apiJson()); });
+  server.on("/auto",   [](){ autoMode = true;  server.send(200, "application/json", apiJson()); });
+  server.on("/beep",   [](){ beepUntil = millis() + 800; server.send(200, "application/json", apiJson()); });
+  server.on("/mute",   [](){ muted = true;  buzTone(false); server.send(200, "application/json", apiJson()); });
+  server.on("/unmute", [](){ muted = false; server.send(200, "application/json", apiJson()); });
+  server.on("/favicon.ico", [](){ server.send(204, "", ""); });
   server.begin();
 
-  delay(10000);   // PIR预热
+  delay(10000);   // PIR预热（这10秒也留给WiFi联网）
   lastMove = millis();
   Serial.println("系统启动");
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("家中WiFi已连接，同一WiFi下任意设备访问 http://" + WiFi.localIP().toString());
+    staPrinted = true;
+  } else {
+    Serial.println("家中WiFi未连上：仅热点可用 http://192.168.4.1（查名称/密码/是否2.4G）");
+  }
 }
 
 void loop() {
   server.handleClient();
   digitalWrite(BOARD_LED, !digitalRead(BOARD_LED));   // 板载心跳
+
+  // ---- WiFi兜底：启动时没连上，之后连上了再打印一次地址 ----
+  if (!staPrinted && millis() - lastStaChk > 10000) {
+    lastStaChk = millis();
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("家中WiFi已连接，同一WiFi下任意设备访问 http://" + WiFi.localIP().toString());
+      staPrinted = true;
+    }
+  }
 
   // ---- 0. 串口/蓝牙指令解析（PC Python通过USB回控；手机蓝牙也可发） ----
   if (Serial.available()) {
@@ -311,7 +380,7 @@ void loop() {
   if (pirHigh) {
     lastMove = millis();
     alerted = false;
-    muted = false;                 // 有人活动，恢复报警
+    // 方案A：PIR 仅清除无活动告警，不再自动取消手动消音；恢复声音由用户点“取消消音”
     if (autoMode && !lightOn) { lightOn = true; digitalWrite(WHITE_LED, HIGH); }
   } else {
     idle = millis() - lastMove;
@@ -343,7 +412,7 @@ void loop() {
     String j = apiJson();
     Serial.println(j);
     SerialBT.println(j);
-    if (bleConnected && bleTx) { bleTx->setValue(j.c_str()); bleTx->notify(); }
+    bleSend(j);
   }
   delay(50);
 }

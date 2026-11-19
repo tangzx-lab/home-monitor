@@ -1,0 +1,38 @@
+居家养老环境监测系统 — 固件源码（V1.7）
+=====================================
+
+【文件说明】
+ElderlyCareMonitor\ElderlyCareMonitor.ino   主程序（418 行）
+解压后直接用 Arduino IDE 打开即可，文件夹名与 .ino 同名，符合 Arduino 规范。
+
+【运行环境】
+开发板      ESP32-DevKitC（ESP32-WROOM-32）
+开发板包    esp32 by Espressif（2.x）
+分区方案    Huge APP (3MB No OTA) —— 蓝牙库较大，默认分区会编译超限
+端口        115200
+
+【依赖库】
+DHT sensor library（Adafruit）—— 通过库管理器安装
+其余 WiFi / WebServer / BluetoothSerial / BLE 均为 ESP32 开发板包自带
+
+【接线】
+DHT11        DATA → GPIO15（4.7kΩ 上拉至 3V3）
+光敏模块      AO   → GPIO34
+HC-SR501     OUT  → GPIO27（VCC 接 5V）
+有源蜂鸣器    I/O  → GPIO5（VCC 接 3V3，低电平触发）
+三色 LED     红→GPIO16  绿→GPIO18  白→GPIO17
+按键          一脚→GPIO4  一脚→GND
+心跳灯        板载 GPIO2
+
+【联网说明】
+代码中 wifiSsid / wifiPass 已替换为占位符，提交版不包含作者家中 WiFi 密码。
+接入自己的 WiFi 时，只需改这两行（仅支持 2.4G、WPA2）。
+不填也能运行：设备会以 AP 热点模式工作，手机连 ESP32_Care / 12345678，
+浏览器访问 http://192.168.4.1 即可查看数据。
+
+【功能概要】
+· 温湿度 / 光照 / 人体三路采集，JSON 每 2 秒上报
+· 三级告警状态机，阈值回差防抖（30/28℃、10/12℃、光照 1500）
+· 无人 15 秒提醒、照明联动、按键双功能（消音 / 开关灯）
+· 三通道：AP 网页、经典蓝牙 SPP + BLE（NUS）、USB 串口
+· 六条控制指令：LEDON / LEDOFF / AUTO / BEEP / MUTE / UNMUTE，另有 STATUS / HELP
