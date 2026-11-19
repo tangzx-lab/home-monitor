@@ -1,0 +1,32 @@
+# ---- macOS / Windows 系统与解压垃圾 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+__MACOSX/
+._*
+
+# ---- Node.js ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---- Arduino / 嵌入式构建产物 ----
+build/
+*.elf
+*.hex
+*.bin
+*.map
+*.o
+*.d
+*.su
+
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp
+
+# ---- 本地日志与临时文件 ----
+*.log
+tmp/
+temp/

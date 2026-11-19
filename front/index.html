@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>居家养老全息监控</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="stage" aria-label="3D 房间监控">
+        <canvas id="roomCanvas"></canvas>
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">HOME · 有温度的陪伴</p>
+            <h1>安心在家</h1>
+            <p class="scene-subtitle">拖动查看房间 · 点灯切换开关 · 点蜂鸣器响一声</p>
+          </div>
+          <div class="status-pill" id="connectionState">未连接</div>
+        </div>
+        <div class="scene-hud">
+          <div>
+            <span>告警等级</span>
+            <strong id="levelText">--</strong>
+          </div>
+          <div>
+            <span>无人时长</span>
+            <strong><b id="idleValue">0</b>s</strong>
+          </div>
+          <div>
+            <span>提醒次数</span>
+            <strong id="countValue">0</strong>
+          </div>
+        </div>
+        <p id="deviceFeedback" class="device-feedback" role="status" aria-live="polite"></p>
+      </section>
+
+      <aside class="panel" aria-label="数据与设备控制">
+        <section class="panel-section">
+          <div class="section-head">
+            <h2>数据源</h2>
+            <button class="icon-button" id="refreshButton" type="button" title="立即刷新" aria-label="立即刷新">
+              ↻
+            </button>
+          </div>
+          <label class="endpoint-label" for="sourceMode">连接方式</label>
+          <div class="source-row">
+            <select id="sourceMode">
+              <option value="http">Wi‑Fi / HTTP</option>
+              <option value="serial">USB 串口</option>
+              <option value="demo">演示模式</option>
+            </select>
+            <button id="serialConnectButton" type="button">连接串口</button>
+            <button id="serialDisconnectButton" type="button">断开</button>
+          </div>
+          <label class="endpoint-label" for="endpointInput">ESP32 地址</label>
+          <div class="endpoint-row">
+            <input id="endpointInput" type="url" value="http://192.168.4.1" spellcheck="false" />
+            <button id="saveEndpointButton" type="button">连接</button>
+          </div>
+          <p class="hint" id="lastUpdated">等待传感器数据</p>
+        </section>
+
+        <section class="metrics">
+          <article class="metric" data-kind="temp">
+            <span>温度</span>
+            <strong><b id="tempValue">--</b> ℃</strong>
+          </article>
+          <article class="metric" data-kind="hum">
+            <span>湿度</span>
+            <strong><b id="humValue">--</b> %RH</strong>
+          </article>
+          <article class="metric" data-kind="light">
+            <span>光感</span>
+            <strong id="lightValue">--</strong>
+          </article>
+          <article class="metric" data-kind="pir">
+            <span>人体存在</span>
+            <strong id="pirValue">--</strong>
+          </article>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-head">
+            <h2>输出设备</h2>
+            <span class="mode-chip" id="modeValue">--</span>
+          </div>
+          <div class="control-grid">
+            <button class="control-button primary" data-command="/ledon" type="button">灯光开</button>
+            <button class="control-button" data-command="/ledoff" type="button">灯光关</button>
+            <button class="control-button" data-command="/auto" type="button">自动模式</button>
+            <button class="control-button warn" data-command="/beep" type="button">蜂鸣器</button>
+            <button class="control-button" data-command="/mute" type="button">静音</button>
+            <button class="control-button" data-command="/unmute" type="button">取消静音</button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>状态</h2>
+          <div class="state-list">
+            <div><span>静音</span><strong id="mutedValue">--</strong></div>
+            <div><span>照明判断</span><strong id="lightStateValue">--</strong></div>
+            <div><span>环境建议</span><strong id="adviceValue">--</strong></div>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.js",
+          "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+        }
+      }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
